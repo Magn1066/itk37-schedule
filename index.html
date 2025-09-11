@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Расписание ITK37</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f5f7fa;
+      color: #333;
+      line-height: 1.6;
+      padding: 10px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      color: #0056b3;
+    }
+    p.intro {
+      text-align: center;
+      color: #555;
+      font-size: 1.1em;
+    }
+    .controls {
+      margin: 20px 0;
+    }
+    select, button {
+      font-size: 16px;
+      padding: 10px;
+      width: 100%;
+      margin: 8px 0;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    button {
+      background-color: #007cba;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #005a87;
+    }
+    #schedule {
+      margin-top: 25px;
+      display: none;
+    }
+    .header {
+      background: #007cba;
+      color: white;
+      padding: 10px 15px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+    }
+    .day {
+      margin-bottom: 20px;
+      padding: 10px;
+      border-left: 4px solid #007cba;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+    .day h3 {
+      margin: 0 0 10px 0;
+      color: #0056b3;
+    }
+    .lesson {
+      background: white;
+      padding: 10px;
+      margin: 6px 0;
+      border: 1px solid #eee;
+      border-radius: 6px;
+    }
+    .time {
+      font-weight: bold;
+      color: #007cba;
+    }
+    .subject {
+      font-weight: 500;
+    }
+    .room {
+      font-style: italic;
+      color: #555;
+    }
+    .empty {
+      text-align: center;
+      color: #888;
+      font-style: italic;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 30px;
+      color: #777;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📅 Расписание ITK37</h1>
+    <p class="intro">Выберите свою группу</p>
+
+    <div class="controls">
+      <label for="groupSelect">Группа:</label>
+      <select id="groupSelect">
+        <option value="">Загрузка...</option>
+      </select>
+      <button onclick="loadSchedule()">Показать расписание</button>
+    </div>
+
+    <div id="schedule">
+      <div class="header">
+        <h2>Расписание для группы <span id="groupTitle"></span></h2>
+      </div>
+      <div id="scheduleContent"></div>
+    </div>
+
+    <p class="footer">
+      Актуально: 8–12 сентября 2025 года
+    </p>
+  </div>
+
+  <!-- Подключаем скрипт -->
+  <script src="script.js"></script>
+</body>
+</html>
