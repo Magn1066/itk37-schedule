@@ -24,30 +24,54 @@
       text-align: center;
       color: #0056b3;
     }
-    p.intro {
+    #dateHeader {
       text-align: center;
-      color: #555;
-      font-size: 1.1em;
+      color: #007cba;
+      font-weight: bold;
+    }
+    .tabs {
+      display: flex;
+      margin: 20px 0;
+    }
+    .tab {
+      flex: 1;
+      text-align: center;
+      padding: 12px;
+      background: #eee;
+      cursor: pointer;
+      border: 1px solid #ccc;
+    }
+    .tab.active {
+      background: #007cba;
+      color: white;
+      font-weight: bold;
+    }
+    .tab:first-child {
+      border-radius: 6px 0 0 6px;
+    }
+    .tab:last-child {
+      border-radius: 0 6px 6px 0;
     }
     .controls {
       margin: 20px 0;
     }
-    select, button {
-      font-size: 16px;
-      padding: 10px;
+    select {
       width: 100%;
-      margin: 8px 0;
+      padding: 10px;
+      font-size: 16px;
       border: 1px solid #ccc;
       border-radius: 6px;
     }
     button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
       background-color: #007cba;
       color: white;
       font-weight: bold;
+      border: none;
+      border-radius: 6px;
       cursor: pointer;
-    }
-    button:hover {
-      background-color: #005a87;
     }
     #schedule {
       margin-top: 25px;
@@ -58,36 +82,23 @@
       color: white;
       padding: 10px 15px;
       border-radius: 8px;
-      margin-bottom: 15px;
     }
     .day {
       margin-bottom: 20px;
       padding: 10px;
       border-left: 4px solid #007cba;
       background: #f9f9f9;
-      border-radius: 4px;
-    }
-    .day h3 {
-      margin: 0 0 10px 0;
-      color: #0056b3;
     }
     .lesson {
       background: white;
-      padding: 10px;
-      margin: 6px 0;
+      padding: 8px;
+      margin: 4px 0;
       border: 1px solid #eee;
-      border-radius: 6px;
+      border-radius: 4px;
     }
     .time {
       font-weight: bold;
       color: #007cba;
-    }
-    .subject {
-      font-weight: 500;
-    }
-    .room {
-      font-style: italic;
-      color: #555;
     }
     .empty {
       text-align: center;
@@ -105,29 +116,42 @@
 <body>
   <div class="container">
     <h1>📅 Расписание ITK37</h1>
-    <p class="intro">Выберите свою группу</p>
+    <p id="dateHeader">Загрузка дат...</p>
 
-    <div class="controls">
+    <!-- Вкладки -->
+    <div class="tabs">
+      <div id="tabGroup" class="tab active" onclick="switchView('group')">По группам</div>
+      <div id="tabTeacher" class="tab" onclick="switchView('teacher')">По преподавателям</div>
+    </div>
+
+    <!-- Выбор группы -->
+    <div id="groupSection" class="controls">
       <label for="groupSelect">Группа:</label>
       <select id="groupSelect">
-        <option value="">Загрузка...</option>
+        <option value="">Загрузка групп...</option>
       </select>
-      <button onclick="loadSchedule()">Показать расписание</button>
     </div>
+
+    <!-- Выбор преподавателя -->
+    <div id="teacherSection" class="controls" style="display:none;">
+      <label for="teacherSelect">Преподаватель:</label>
+      <select id="teacherSelect">
+        <option value="">Загрузка преподавателей...</option>
+      </select>
+    </div>
+
+    <button onclick="loadSchedule()">Показать расписание</button>
 
     <div id="schedule">
       <div class="header">
-        <h2>Расписание для группы <span id="groupTitle"></span></h2>
+        <h2 id="resultTitle">Расписание</h2>
       </div>
       <div id="scheduleContent"></div>
     </div>
 
-    <p class="footer">
-      Актуально: 8–12 сентября 2025 года
-    </p>
+    <p class="footer">Актуально на 8–12 сентября 2025 года</p>
   </div>
 
-  <!-- Подключаем скрипт -->
   <script src="script.js"></script>
 </body>
 </html>
