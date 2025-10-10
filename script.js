@@ -1,31 +1,40 @@
-const CSV_FILE = 'schedule.csv';
+// ❗ Имя файла теперь .xls
+const XLS_FILE = 'schedule.xls';
 
+// Глобальные переменные для хранения данных
 let scheduleData = [];
 let groups = new Set();
 let teachers = new Set();
+let groupColumns = {}; // { groupName: colIndex }
 
-let groupColumns = {}; // { colIndex: { group, timeIdx } }
-let currentDay = '';
-let currentLessonNum = '1';
-
-async function loadCSV() {
+/**
+ * Основная функция для загрузки и парсинга XLS-файла
+ */
+async function loadXLS() {
     try {
-        const response = await fetch(CSV_FILE + '?t=' + Date.now());
-        if (!response.ok) throw new Error('Файл не найден');
+        const response = await fetch(XLS_FILE + '?t=' + Date.now());
+        if (!response.ok) throw new Error('Файл расписания не найден.');
+        
+        // Читаем файл как бинарный массив
+        const arrayBuffer = await response.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer);
+        
+        // Берем первый лист из книги Excel
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
 
-        const text = await response.text();
-        const lines = text
-            .split('\n')
-            .map(line => line.trim().replace(/\r$/, '').split(';'))
-            .filter(row => row.length > 1);
+        // Конвертируем данные листа в удобный массив
+        const lines = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
 
         // === 1. Извлечение дат ===
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].join('');
-            if (line.includes('РАСПИСАНИЕ ЗАНЯТИЙ') && line.includes('по')) {
-                const match = line.match(/с (\d{2}\.\d{2}\.\d{4}) по (\d{2}\.\d{2}\.\d{4})/);
+        for (const row of lines) {
+            const lineStr = row.join(';');
+            if (lineStr.includes('РАСПИСАНИЕ ЗАНЯТИЙ')) {
+                const match = lineStr.match(/с (\d{2}\.\d{2}\.\d{4}) по (\d{2}\.\d{2}\.\d{4})/);
                 if (match) {
-                    document.getElementById('dateHeader').textContent = `${match[1]} – ${match[2]}`;
+                    document.getElementById('dateHeader').textContent = `Период: ${match[1]} – ${match[2]}`;
+                    const footer = document.querySelector('.footer');
+                    if (footer) footer.textContent = `Актуально на ${match[1]} – ${match[2]}`;
                 }
                 break;
             }
@@ -34,128 +43,151 @@ async function loadCSV() {
         // === 2. Поиск заголовков групп ===
         let headers = null;
         let dataStartRow = -1;
-
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i][0]?.includes('ДНИ НЕДЕЛИ')) {
+            if (String(lines[i][0]).includes('ДНИ НЕДЕЛИ')) {
                 headers = lines[i];
                 dataStartRow = i + 1;
                 break;
             }
         }
 
-        if (!headers || !dataStartRow) {
-            throw new Error('Не найдены заголовки');
+        if (!headers || dataStartRow === -1) {
+            throw new Error('Не удалось найти строку с заголовками "ДНИ НЕДЕЛИ".');
         }
-
+        
+        // Заполняем информацию о группах и их колонках
         headers.forEach((cell, idx) => {
-            if ((cell.includes('Группа №') || cell.includes('Группа ')) && idx >= 2) {
-                const match = cell.match(/Группа\s+№?\s*([^\s";]+(?:\s+[^\s"]+)*)/i);
-                if (match) {
-                    const groupName = match[1].trim().replace(/"/g, '');
+            const cleanCell = String(cell).trim().replace(/"/g, '');
+            if (cleanCell.toLowerCase().startsWith('группа')) {
+                const groupName = cleanCell.replace(/Группа\s+№?\s*/i, '').trim();
+                if (groupName) {
                     groups.add(groupName);
-
-                    groupColumns[idx] = {
-                        group: groupName,
-                        timeIdx: idx - 1
-                    };
+                    groupColumns[groupName] = idx;
                 }
             }
         });
 
-        // === 3. Чтение данных ===
-        const daysOrder = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
-
-        for (let i = dataStartRow; i < lines.length; i++) {
-            const row = lines[i];
-            const firstCell = (row[0] || '').toLowerCase().trim();
-
-            // Определение дня недели
-            if (daysOrder.some(day => firstCell.includes(day))) {
-                currentDay = firstCell.split(' ')[0];
-                // ❗ ИСПРАВЛЕНИЕ: Убран 'continue', чтобы обработать данные 1-го урока на этой же строке
-            }
-
-            // Получаем номер урока
-            const lessonNumRaw = row[1] ? row[1].trim() : '';
-            if (lessonNumRaw) {
-                currentLessonNum = lessonNumRaw;
-            }
-
-            // Определяем пару: 1→1.2, 3→3.4 и т.д.
-            const pair = getPairNumber(currentLessonNum);
-            if (!pair || !currentDay) continue;
-
-            // Обрабатываем каждую группу
-            Object.keys(groupColumns).forEach(colIdxStr => {
-                const colIdx = parseInt(colIdxStr);
-                const info = groupColumns[colIdx];
-                const subjectCell = (row[colIdx] || '').trim();
-
-                if (subjectCell && !subjectCell.includes('Классный час')) {
-                    // Поиск преподавателей
-                    const teacherMatches = [...subjectCell.matchAll(/([А-ЯЁ][а-яё]+)\s+([А-ЯЁ]\.[А-ЯЁ]\.)/g)];
-                    const foundTeachers = [];
-
-                    let mainSubject = subjectCell;
-                    teacherMatches.forEach(match => {
-                        const fullName = `${match[1]} ${match[2]}`;
-                        foundTeachers.push(fullName);
-                        mainSubject = mainSubject.replace(new RegExp(`\\s*${fullName}\\s*`, 'g'), '').trim();
-                    });
-
-                    const room = row[colIdx + 1] ? row[colIdx + 1].trim() : '—';
-
-                    // Проверяем, есть ли уже такая пара (чтобы не дублировать урок 1 и 2)
-                    const existing = scheduleData.find(item => item.day === currentDay && item.group === info.group && item.pair === pair);
-                    if (!existing) {
-                        scheduleData.push({
-                            day: currentDay,
-                            pair: pair,
-                            subject: mainSubject || '—',
-                            room: room,
-                            group: info.group,
-                            allTeachers: foundTeachers
-                        });
-
-                        foundTeachers.forEach(t => teachers.add(t));
-                    }
-                }
-            });
-        }
+        // === 3. Чтение данных расписания ===
+        parseScheduleData(lines, dataStartRow);
 
         // Заполнение выпадающих списков
-        fillSelect('groupSelect', groups, 'Группа ');
-        fillSelect('teacherSelect', teachers, '');
-
-        document.getElementById('teacherSection').style.display = 'none';
+        fillSelect('groupSelect', Array.from(groups).sort(), 'Группа ');
+        fillSelect('teacherSelect', Array.from(teachers).sort(), '');
 
     } catch (error) {
-        console.error('Ошибка:', error);
-        alert('Не удалось загрузить расписание. Проверьте, что файл schedule.csv находится в той же папке.');
+        console.error('Ошибка при загрузке расписания:', error);
+        alert(`Произошла ошибка: ${error.message}. Убедитесь, что файл ${XLS_FILE} находится в той же папке.`);
     }
 }
+
+/**
+ * Основной парсер данных расписания
+ */
+function parseScheduleData(lines, startRow) {
+    const daysOrder = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+    let currentDay = '';
+
+    for (let i = startRow; i < lines.length; i++) {
+        const row = lines[i];
+        const firstCell = String(row[0] || '').toLowerCase().trim();
+
+        // Прекращаем чтение, если дошли до сносок в конце файла
+        if (firstCell.includes('сокращения') || firstCell.includes('рем. раб')) {
+            break;
+        }
+        
+        // Определяем день недели
+        const foundDay = daysOrder.find(day => firstCell.includes(day));
+        if (foundDay) {
+            currentDay = foundDay.charAt(0).toUpperCase() + foundDay.slice(1);
+        }
+
+        const lessonNum = String(row[1] || '').trim();
+        if (!lessonNum || !currentDay || isNaN(parseInt(lessonNum))) continue;
+
+        const pair = getPairNumber(lessonNum);
+        if (!pair) continue;
+        
+        // Обрабатываем каждую группу
+        for (const groupName of Object.keys(groupColumns)) {
+            const colIdx = groupColumns[groupName];
+            
+            // Собираем текст из нескольких ячеек, чтобы учесть объединенные ячейки в Excel
+            const subjectRaw = (String(row[colIdx] || '') + ' ' + String(row[colIdx + 1] || '')).trim();
+
+            if (!subjectRaw || subjectRaw.toLowerCase().includes('классный час')) continue;
+
+            const { subject, teacher, room } = parseSubjectCell(subjectRaw);
+
+            // Проверяем, не добавили ли мы уже этот урок (из-за двойных строк в расписании)
+            const isDuplicate = scheduleData.some(
+                item => item.day === currentDay && item.group === groupName && item.pair === pair
+            );
+
+            if (!isDuplicate) {
+                scheduleData.push({
+                    day: currentDay,
+                    pair: pair,
+                    subject: subject || '—',
+                    room: room,
+                    group: groupName,
+                    teacher: teacher || 'Не указан'
+                });
+                if (teacher) teachers.add(teacher);
+            }
+        }
+    }
+}
+
+
+/**
+ * Извлекает предмет, преподавателя и аудиторию из одной ячейки
+ */
+function parseSubjectCell(cellText) {
+    let subject = cellText;
+    let teacher = '';
+    let room = '—';
+    
+    // Ищем преподавателя (Фамилия И.О.)
+    const teacherMatch = subject.match(/([А-ЯЁ][а-яё]+)\s+([А-ЯЁ]\.[А-ЯЁ]\.)/);
+    if (teacherMatch) {
+        teacher = teacherMatch[0];
+        subject = subject.replace(teacher, '').trim();
+    }
+    
+    // Ищем аудиторию (каб. XX, ауд. XX, или просто номер в конце)
+    const roomMatch = subject.match(/(каб\.|ауд\.|маст\.)?\s*(\d{1,3}[а-я]?)$/i);
+    if (roomMatch) {
+        room = roomMatch[0];
+        subject = subject.replace(room, '').trim();
+    }
+    
+    // Убираем лишние символы, которые могли остаться
+    subject = subject.replace(/,$/, '').trim();
+
+    return { subject, teacher, room };
+}
+
 
 function getPairNumber(num) {
     const n = parseInt(num);
     if (isNaN(n)) return null;
-    if (n <= 2) return '1.2';
-    if (n <= 4) return '3.4';
-    if (n <= 6) return '5.6';
-    if (n <= 8) return '7.8';
+    if (n <= 2) return '1-2 пара';
+    if (n <= 4) return '3-4 пара';
+    if (n <= 6) return '5-6 пара';
+    if (n <= 8) return '7-8 пара';
     return null;
 }
 
 function fillSelect(id, items, prefix) {
     const select = document.getElementById(id);
     select.innerHTML = '<option value="">-- Выберите --</option>';
-    Array.from(items)
-        .sort()
-        .forEach(item => {
-            const option = document.createElement('option');
-            option.value = item;
-            option.textContent = prefix + item;
-            select.appendChild(option);
-        });
+    items.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item;
+        option.textContent = prefix ? prefix + item : item; // Убрал добавление "Группа " если не нужно
+        select.appendChild(option);
+    });
 }
 
 let currentView = 'group';
@@ -174,44 +206,30 @@ function loadSchedule() {
     const group = document.getElementById('groupSelect').value;
     const teacher = document.getElementById('teacherSelect').value;
 
-    if (currentView === 'group' && !group) {
-         document.getElementById('schedule').style.display = 'none';
-         return;
-    }
-    if (currentView === 'teacher' && !teacher) {
+    if ((currentView === 'group' && !group) || (currentView === 'teacher' && !teacher)) {
         document.getElementById('schedule').style.display = 'none';
         return;
     }
 
-
     const filtered = currentView === 'group' ?
         scheduleData.filter(l => l.group === group) :
-        scheduleData.filter(l => l.allTeachers && l.allTeachers.includes(teacher));
+        scheduleData.filter(l => l.teacher === teacher);
 
     const resultTitle = document.getElementById('resultTitle');
     if (currentView === 'group') {
-        resultTitle.textContent = `Группа ${group}`;
+        resultTitle.textContent = `Расписание для группы: ${group}`;
     } else {
         const teacherGroups = [...new Set(filtered.map(l => l.group))].sort().join(', ');
         resultTitle.innerHTML = `
-        Преподаватель: ${teacher}<br>
-        <small style="font-size:0.8em; color: #555;">Группы: ${teacherGroups}</small>
+        Расписание для преподавателя: ${teacher}<br>
+        <small style="font-size:0.8em; color: #fff;">Группы: ${teacherGroups}</small>
         `;
     }
 
     const content = document.getElementById('scheduleContent');
     content.innerHTML = '';
-
-    const daysMap = {
-        'понедельник': 'Понедельник',
-        'вторник': 'Вторник',
-        'среда': 'Среда',
-        'четверг': 'Четверг',
-        'пятница': 'Пятница',
-        'суббота': 'Суббота'
-    };
-
-    const daysOrder = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+    
+    const daysOrder = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
     let hasLessons = false;
 
     daysOrder.forEach(dayKey => {
@@ -222,43 +240,39 @@ function loadSchedule() {
             dayEl.className = 'day';
 
             const title = document.createElement('h3');
-            title.textContent = daysMap[dayKey];
+            title.textContent = dayKey;
             dayEl.appendChild(title);
-
-            const sorted = dayLessons.sort((a, b) => parseFloat(a.pair) - parseFloat(b.pair));
+            
+            const sorted = dayLessons.sort((a, b) => parseInt(a.pair) - parseInt(b.pair));
 
             sorted.forEach(lesson => {
                 const lessonEl = document.createElement('div');
                 lessonEl.className = 'lesson';
+                const teacherInfo = lesson.teacher === 'Не указан' ? '<em>не указан</em>' : lesson.teacher;
 
                 if (currentView === 'group') {
                     lessonEl.innerHTML = `
-                        <span><strong>${lesson.pair}.</strong> ${lesson.subject}</span><br>
-                        <em>Преподаватель: ${lesson.allTeachers.join(', ') || 'не указан'}</em><br>
-                        <em>Аудитория: ${lesson.room}</em>
+                        <span class="time">${lesson.pair}:</span> ${lesson.subject}<br>
+                        <small><strong>Преподаватель:</strong> ${teacherInfo} | <strong>Аудитория:</strong> ${lesson.room}</small>
                     `;
                 } else {
                     lessonEl.innerHTML = `
-                        <span><strong>${lesson.pair}.</strong> ${lesson.subject}</span><br>
-                        <strong>Группа:</strong> ${lesson.group}<br>
-                        <em>Аудитория: ${lesson.room}</em>
+                        <span class="time">${lesson.pair}:</span> ${lesson.subject}<br>
+                        <small><strong>Группа:</strong> ${lesson.group} | <strong>Аудитория:</strong> ${lesson.room}</small>
                     `;
                 }
                 dayEl.appendChild(lessonEl);
             });
-
             content.appendChild(dayEl);
         }
     });
 
     if (!hasLessons) {
-        const empty = document.createElement('p');
-        empty.className = 'empty';
-        empty.textContent = 'Занятий нет.';
-        content.appendChild(empty);
+        content.innerHTML = '<p class="empty">Для выбранного варианта занятий нет.</p>';
     }
 
     document.getElementById('schedule').style.display = 'block';
 }
 
-window.onload = loadCSV;
+// ❗ Запускаем новую функцию при загрузке страницы
+window.onload = loadXLS;
