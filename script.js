@@ -197,13 +197,14 @@ function parseScheduleRows(rows, startRow, groupColumns, lessons, teachers) {
         }
 
         Object.entries(groupColumns).forEach(([groupName, columnIndex]) => {
-            const subjectRaw = `${String(row[columnIndex] || '')} ${String(row[columnIndex + 1] || '')}`.trim();
-            if (!subjectRaw || subjectRaw.toLowerCase().includes('классный час')) {
+            const disciplineRaw = String(row[columnIndex] || '').trim();
+            const roomRaw = String(row[columnIndex + 1] || '').trim();
+            if (!disciplineRaw || disciplineRaw.toLowerCase().includes('классный час')) {
                 return;
             }
 
-            parseSubjectCell(subjectRaw).forEach(lesson => {
-                const isDuplicate = subjectRaw.indexOf('/') === -1 && lessons.some(item =>
+            parseSubjectCell(disciplineRaw, roomRaw).forEach(lesson => {
+                const isDuplicate = !hasLessonSplitter(disciplineRaw, roomRaw) && lessons.some(item =>
                     item.day === currentDay && item.group === groupName && item.pair === pair
                 );
 
@@ -232,8 +233,8 @@ function parseScheduleRows(rows, startRow, groupColumns, lessons, teachers) {
 
 function rowHasSubject(row, groupColumns) {
     return Object.values(groupColumns).some(columnIndex => {
-        const subjectRaw = `${String(row[columnIndex] || '')} ${String(row[columnIndex + 1] || '')}`.trim();
-        return subjectRaw && !subjectRaw.toLowerCase().includes('классный час');
+        const disciplineRaw = String(row[columnIndex] || '').trim();
+        return disciplineRaw && !disciplineRaw.toLowerCase().includes('классный час');
     });
 }
 
@@ -251,47 +252,64 @@ function getPairOrder(pair) {
     return parseInt(String(pair).split('-')[0], 10) || 999;
 }
 
-function parseSubjectCell(cellText) {
-    const cleanText = cellText.replace(/\s+/g, ' ').trim();
-    const rawParts = cleanText.split('/');
-    const lessons = [];
+function parseSubjectCell(disciplineText, roomText = '') {
+    const discipline = normalizeText(disciplineText);
+    const room = normalizeText(roomText);
 
-    rawParts.forEach(part => {
-        const cleanedPart = part.trim();
-        if (cleanedPart) {
-            lessons.push(parseSubjectPart(cleanedPart));
-        }
-    });
-
-    if (lessons.length > 1) {
-        const primarySubject = lessons[0].subject;
-        lessons.forEach(lesson => {
-            if (lesson.subject === '-' && primarySubject !== '-') {
-                lesson.subject = primarySubject;
-            }
-        });
+    if (!discipline) {
+        return [{ subject: '-', teacher: 'Не указан', room: room || '-' }];
     }
 
-    return lessons.length ? lessons : [{ subject: '-', teacher: 'Не указан', room: '-' }];
+    if (!hasLessonSplitter(discipline, room)) {
+        return [parseSubjectPart(discipline, room)];
+    }
+
+    return parseSplitSubjectCell(discipline, room);
 }
 
-function parseSubjectPart(text) {
-    let subject = text.replace(/\s+/g, ' ').trim();
+function parseSplitSubjectCell(discipline, room) {
+    const subjectParts = splitClean(discipline, '/');
+    const roomParts = splitRooms(room);
+
+    if (subjectParts.length === 3 && roomParts.length === 2 && isTeacherOnly(subjectParts[2])) {
+        const middleLesson = parseSubjectPart(subjectParts[1], '');
+        const firstTeacherSource = middleLesson.teacher;
+        const secondTeacher = parseSubjectPart(subjectParts[2], '').teacher;
+        const secondSubject = completeShortLanguageSubject(subjectParts[0], middleLesson.subject);
+
+        return [
+            parseSubjectPart(`${subjectParts[0]} ${firstTeacherSource}`, roomParts[0]),
+            parseSubjectPart(`${secondSubject} ${secondTeacher}`, roomParts[1])
+        ];
+    }
+
+    if (subjectParts.length === roomParts.length && subjectParts.length > 1) {
+        return subjectParts.map((part, index) => parseSubjectPart(part, roomParts[index]));
+    }
+
+    return [parseSubjectPart(discipline, room)];
+}
+
+function parseSubjectPart(text, roomOverride = '') {
+    let subject = normalizeText(text);
     let teacher = '';
-    let room = '-';
+    let room = normalizeText(roomOverride) || '-';
     let match = null;
     const roomPrefixRegex = /(.*)\s*((каб\.|ауд\.|маст\.)\s*(\d{1,3}[а-я]?))$/i;
     const roomNumOnlyRegex = /(.*)\s*(\d{3,}[а-я]?)$/i;
-    let roomMatch = subject.match(roomPrefixRegex);
 
-    if (roomMatch) {
-        room = roomMatch[2].trim();
-        subject = roomMatch[1].trim();
-    } else {
-        roomMatch = subject.match(roomNumOnlyRegex);
+    if (!roomOverride) {
+        let roomMatch = subject.match(roomPrefixRegex);
+
         if (roomMatch) {
             room = roomMatch[2].trim();
             subject = roomMatch[1].trim();
+        } else {
+            roomMatch = subject.match(roomNumOnlyRegex);
+            if (roomMatch) {
+                room = roomMatch[2].trim();
+                subject = roomMatch[1].trim();
+            }
         }
     }
 
@@ -323,6 +341,42 @@ function parseSubjectPart(text) {
         teacher: teacher || 'Не указан',
         room
     };
+}
+
+function hasLessonSplitter(discipline, room) {
+    return discipline.includes('/') && !isGymRoom(room);
+}
+
+function splitRooms(room) {
+    if (!room || isGymRoom(room)) {
+        return room ? [room] : [];
+    }
+    return splitClean(room, '/');
+}
+
+function splitClean(value, separator) {
+    return normalizeText(value).split(separator).map(part => part.trim()).filter(Boolean);
+}
+
+function normalizeText(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isGymRoom(value) {
+    return /^с\s*\/\s*зал$/i.test(normalizeText(value));
+}
+
+function isTeacherOnly(value) {
+    return /^[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.?\s*[А-ЯЁ]\.?$/i.test(normalizeText(value));
+}
+
+function completeShortLanguageSubject(firstSubject, secondSubject) {
+    const first = normalizeText(firstSubject).toLowerCase();
+    const second = normalizeText(secondSubject);
+    if (first.includes('яз') && /^(англ|нем|рус)$/i.test(second)) {
+        return `${second} яз`;
+    }
+    return second;
 }
 
 function updateHeader() {
@@ -439,7 +493,7 @@ function renderSchedule() {
     const header = document.createElement('div');
     header.className = 'result-header';
     header.appendChild(createResultTitle(`${entityLabel}: ${selected}`, metaLabel || 'Занятий нет'));
-    header.appendChild(createSummaryBadge(filtered.length));
+    header.appendChild(createSummaryBadge(getVisibleLessonCount(filtered)));
     elements.schedule.appendChild(header);
 
     if (!filtered.length) {
@@ -454,7 +508,7 @@ function renderSchedule() {
         const dayLessons = filtered
             .filter(lesson => lesson.day === day)
             .sort((a, b) => a.pairOrder - b.pairOrder || localeSort(a.subject, b.subject));
-        grid.appendChild(createDayCard(day, dayLessons));
+        grid.appendChild(createDayCard(day, getVisibleLessons(dayLessons)));
     });
 
     elements.schedule.appendChild(grid);
@@ -474,7 +528,10 @@ function createResultTitle(title, meta) {
 function createSummaryBadge(count) {
     const badge = document.createElement('div');
     badge.className = 'summary-badge';
-    badge.textContent = formatCount(count, ['занятие', 'занятия', 'занятий']);
+    const forms = state.currentView === 'group'
+        ? ['пара', 'пары', 'пар']
+        : ['занятие', 'занятия', 'занятий'];
+    badge.textContent = formatCount(count, forms);
     return badge;
 }
 
@@ -488,7 +545,7 @@ function createDayCard(day, lessons) {
     title.textContent = day;
     const count = document.createElement('span');
     count.className = 'day-count';
-    count.textContent = lessons.length ? formatCount(lessons.length, ['урок', 'урока', 'уроков']) : 'нет занятий';
+    count.textContent = lessons.length ? formatCount(lessons.length, ['пара', 'пары', 'пар']) : 'нет занятий';
     header.append(title, count);
     card.appendChild(header);
 
@@ -502,36 +559,80 @@ function createDayCard(day, lessons) {
 
     const list = document.createElement('div');
     list.className = 'lesson-list';
-    lessons.forEach(lesson => list.appendChild(createLessonCard(lesson)));
+    lessons.forEach(slot => list.appendChild(createLessonCard(slot)));
     card.appendChild(list);
     return card;
 }
 
-function createLessonCard(lesson) {
+function createLessonCard(slot) {
     const card = document.createElement('div');
     card.className = 'lesson-card';
 
     const time = document.createElement('div');
     time.className = 'lesson-time';
-    time.textContent = lesson.pair;
+    time.textContent = slot.pair;
 
     const body = document.createElement('div');
-    const subject = document.createElement('p');
-    subject.className = 'lesson-subject';
-    subject.textContent = lesson.subject;
+    const parts = slot.parts || [slot];
 
-    const details = document.createElement('div');
-    details.className = 'lesson-details';
-    if (state.currentView === 'group') {
-        details.appendChild(createDetail('Преподаватель', lesson.teacher));
-    } else {
-        details.appendChild(createDetail('Группа', lesson.group));
+    if (parts.length > 1) {
+        const splitLabel = document.createElement('div');
+        splitLabel.className = 'split-label';
+        splitLabel.textContent = 'Подгруппы';
+        body.appendChild(splitLabel);
     }
-    details.appendChild(createDetail('Кабинет', lesson.room, 'room'));
 
-    body.append(subject, details);
+    parts.forEach((lesson, index) => {
+        const part = document.createElement('div');
+        part.className = `lesson-part${parts.length > 1 ? ' split' : ''}`;
+
+        const subject = document.createElement('p');
+        subject.className = 'lesson-subject';
+        subject.textContent = parts.length > 1 ? `${index + 1}. ${lesson.subject}` : lesson.subject;
+
+        const details = document.createElement('div');
+        details.className = 'lesson-details';
+        if (state.currentView === 'group') {
+            details.appendChild(createDetail('Преподаватель', lesson.teacher));
+        } else {
+            details.appendChild(createDetail('Группа', lesson.group));
+        }
+        details.appendChild(createDetail('Кабинет', lesson.room, 'room'));
+
+        part.append(subject, details);
+        body.appendChild(part);
+    });
+
     card.append(time, body);
     return card;
+}
+
+function getVisibleLessons(lessons) {
+    if (state.currentView !== 'group') {
+        return lessons;
+    }
+
+    const slots = new Map();
+    lessons.forEach(lesson => {
+        const key = `${lesson.day}|${lesson.pair}`;
+        if (!slots.has(key)) {
+            slots.set(key, {
+                day: lesson.day,
+                pair: lesson.pair,
+                pairOrder: lesson.pairOrder,
+                parts: []
+            });
+        }
+        slots.get(key).parts.push(lesson);
+    });
+
+    return Array.from(slots.values())
+        .sort((a, b) => a.pairOrder - b.pairOrder)
+        .map(slot => slot.parts.length === 1 ? slot.parts[0] : slot);
+}
+
+function getVisibleLessonCount(lessons) {
+    return getVisibleLessons(lessons).length;
 }
 
 function createDetail(label, value, extraClass = '') {
