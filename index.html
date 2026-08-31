@@ -2,66 +2,72 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Расписание ITK37</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Расписание ИТК37</title>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" />
+    <link rel="stylesheet" href="styles.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f5f7fa; color: #333; line-height: 1.6; padding: 10px; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        h1 { text-align: center; color: #0056b3; }
-        #dateHeader { text-align: center; color: #007cba; font-weight: bold; }
-        .tabs { display: flex; margin: 20px 0; }
-        .tab { flex: 1; text-align: center; padding: 12px; background: #eee; cursor: pointer; border: 1px solid #ccc; transition: background 0.3s, color 0.3s; }
-        .tab.active { background: #007cba; color: white; font-weight: bold; }
-        .tab:first-child { border-radius: 6px 0 0 6px; }
-        .tab:last-child { border-radius: 0 6px 6px 0; }
-        .controls { margin: 20px 0; }
-        select { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; margin-top: 10px; background-color: #007cba; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; transition: background-color 0.3s; }
-        button:hover { background-color: #0056b3; }
-        #schedule { margin-top: 25px; display: none; }
-        .header { background: #007cba; color: white; padding: 10px 15px; border-radius: 8px; }
-        .day { margin-top: 20px; padding-left: 15px; border-left: 4px solid #007cba; background: #fdfdfd; }
-        .day h3 { margin-top: 0; padding-top: 10px; }
-        .lesson { background: white; padding: 10px; margin: 5px 0; border: 1px solid #eee; border-radius: 4px; }
-        .time { font-weight: bold; color: #007cba; }
-        .empty { text-align: center; color: #888; font-style: italic; padding: 20px; }
-        .footer { text-align: center; margin-top: 30px; color: #777; font-size: 0.9em; }
-    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>📅 Расписание ITK37</h1>
-        <p id="dateHeader">Загрузка данных...</p>
-
-        <div class="tabs">
-            <div id="tabGroup" class="tab active" onclick="switchView('group')">По группам</div>
-            <div id="tabTeacher" class="tab" onclick="switchView('teacher')">По преподавателям</div>
-        </div>
-
-        <div id="groupSection" class="controls" style="display:none;">
-            <label for="groupSelect">Группа:</label>
-            <select id="groupSelect" onchange="loadSchedule()">
-                <option value="">Загрузка групп...</option>
-            </select>
-        </div>
-
-        <div id="teacherSection" class="controls" style="display:none;">
-            <label for="teacherSelect">Преподаватель:</label>
-            <select id="teacherSelect" onchange="loadSchedule()">
-                 <option value="">Загрузка преподавателей...</option>
-            </select>
-        </div>
-
-        <button onclick="loadSchedule()">Показать расписание</button>
-
-        <div id="schedule">
-            <div class="header">
-                <h2 id="resultTitle">Расписание</h2>
+    <main class="app-shell">
+        <section class="topbar" aria-labelledby="pageTitle">
+            <div>
+                <p class="kicker">ГБПОУ ИТК37</p>
+                <h1 id="pageTitle">Расписание занятий</h1>
+                <p id="dateHeader" class="period">Загрузка Excel-файла...</p>
             </div>
-            <div id="scheduleContent"></div>
-        </div>
-    </div>
+            <div class="source-card" aria-live="polite">
+                <span class="source-card__label">Источник</span>
+                <strong id="sourceStatus">schedule.xls</strong>
+                <span id="lessonCount">0 занятий</span>
+            </div>
+        </section>
+
+        <section class="workspace" aria-label="Поиск расписания">
+            <div class="panel controls-panel">
+                <div class="tabs" role="tablist" aria-label="Вид расписания">
+                    <button id="tabGroup" class="tab active" type="button" role="tab" aria-selected="true" data-view="group">
+                        По группам
+                    </button>
+                    <button id="tabTeacher" class="tab" type="button" role="tab" aria-selected="false" data-view="teacher">
+                        По преподавателям
+                    </button>
+                </div>
+
+                <label class="field" for="entitySearch">
+                    <span id="searchLabel">Найти группу</span>
+                    <input id="entitySearch" type="search" autocomplete="off" placeholder="Начните вводить номер или название" />
+                </label>
+
+                <label id="groupSection" class="field" for="groupSelect">
+                    <span>Группа</span>
+                    <select id="groupSelect">
+                        <option value="">Загрузка групп...</option>
+                    </select>
+                </label>
+
+                <label id="teacherSection" class="field" for="teacherSelect" hidden>
+                    <span>Преподаватель</span>
+                    <select id="teacherSelect">
+                        <option value="">Загрузка преподавателей...</option>
+                    </select>
+                </label>
+
+                <div>
+                    <div class="quick-title">Быстрый выбор</div>
+                    <div id="quickPicks" class="quick-picks" aria-live="polite"></div>
+                </div>
+            </div>
+
+            <section id="schedule" class="schedule-view" aria-live="polite">
+                <div class="empty-state">
+                    <p class="empty-state__title">Выберите группу или преподавателя</p>
+                    <p>Расписание появится здесь по дням недели.</p>
+                </div>
+            </section>
+        </section>
+    </main>
+
     <script src="script.js"></script>
 </body>
 </html>
