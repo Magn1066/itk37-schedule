@@ -493,7 +493,7 @@ function renderSchedule() {
     const header = document.createElement('div');
     header.className = 'result-header';
     header.appendChild(createResultTitle(`${entityLabel}: ${selected}`, metaLabel || 'Занятий нет'));
-    header.appendChild(createSummaryBadge(filtered.length));
+    header.appendChild(createSummaryBadge(getVisibleLessonCount(filtered)));
     elements.schedule.appendChild(header);
 
     if (!filtered.length) {
@@ -508,7 +508,7 @@ function renderSchedule() {
         const dayLessons = filtered
             .filter(lesson => lesson.day === day)
             .sort((a, b) => a.pairOrder - b.pairOrder || localeSort(a.subject, b.subject));
-        grid.appendChild(createDayCard(day, dayLessons));
+        grid.appendChild(createDayCard(day, getVisibleLessons(dayLessons)));
     });
 
     elements.schedule.appendChild(grid);
@@ -528,7 +528,10 @@ function createResultTitle(title, meta) {
 function createSummaryBadge(count) {
     const badge = document.createElement('div');
     badge.className = 'summary-badge';
-    badge.textContent = formatCount(count, ['занятие', 'занятия', 'занятий']);
+    const forms = state.currentView === 'group'
+        ? ['пара', 'пары', 'пар']
+        : ['занятие', 'занятия', 'занятий'];
+    badge.textContent = formatCount(count, forms);
     return badge;
 }
 
@@ -542,7 +545,7 @@ function createDayCard(day, lessons) {
     title.textContent = day;
     const count = document.createElement('span');
     count.className = 'day-count';
-    count.textContent = lessons.length ? formatCount(lessons.length, ['урок', 'урока', 'уроков']) : 'нет занятий';
+    count.textContent = lessons.length ? formatCount(lessons.length, ['пара', 'пары', 'пар']) : 'нет занятий';
     header.append(title, count);
     card.appendChild(header);
 
@@ -556,36 +559,80 @@ function createDayCard(day, lessons) {
 
     const list = document.createElement('div');
     list.className = 'lesson-list';
-    lessons.forEach(lesson => list.appendChild(createLessonCard(lesson)));
+    lessons.forEach(slot => list.appendChild(createLessonCard(slot)));
     card.appendChild(list);
     return card;
 }
 
-function createLessonCard(lesson) {
+function createLessonCard(slot) {
     const card = document.createElement('div');
     card.className = 'lesson-card';
 
     const time = document.createElement('div');
     time.className = 'lesson-time';
-    time.textContent = lesson.pair;
+    time.textContent = slot.pair;
 
     const body = document.createElement('div');
-    const subject = document.createElement('p');
-    subject.className = 'lesson-subject';
-    subject.textContent = lesson.subject;
+    const parts = slot.parts || [slot];
 
-    const details = document.createElement('div');
-    details.className = 'lesson-details';
-    if (state.currentView === 'group') {
-        details.appendChild(createDetail('Преподаватель', lesson.teacher));
-    } else {
-        details.appendChild(createDetail('Группа', lesson.group));
+    if (parts.length > 1) {
+        const splitLabel = document.createElement('div');
+        splitLabel.className = 'split-label';
+        splitLabel.textContent = 'Подгруппы';
+        body.appendChild(splitLabel);
     }
-    details.appendChild(createDetail('Кабинет', lesson.room, 'room'));
 
-    body.append(subject, details);
+    parts.forEach((lesson, index) => {
+        const part = document.createElement('div');
+        part.className = `lesson-part${parts.length > 1 ? ' split' : ''}`;
+
+        const subject = document.createElement('p');
+        subject.className = 'lesson-subject';
+        subject.textContent = parts.length > 1 ? `${index + 1}. ${lesson.subject}` : lesson.subject;
+
+        const details = document.createElement('div');
+        details.className = 'lesson-details';
+        if (state.currentView === 'group') {
+            details.appendChild(createDetail('Преподаватель', lesson.teacher));
+        } else {
+            details.appendChild(createDetail('Группа', lesson.group));
+        }
+        details.appendChild(createDetail('Кабинет', lesson.room, 'room'));
+
+        part.append(subject, details);
+        body.appendChild(part);
+    });
+
     card.append(time, body);
     return card;
+}
+
+function getVisibleLessons(lessons) {
+    if (state.currentView !== 'group') {
+        return lessons;
+    }
+
+    const slots = new Map();
+    lessons.forEach(lesson => {
+        const key = `${lesson.day}|${lesson.pair}`;
+        if (!slots.has(key)) {
+            slots.set(key, {
+                day: lesson.day,
+                pair: lesson.pair,
+                pairOrder: lesson.pairOrder,
+                parts: []
+            });
+        }
+        slots.get(key).parts.push(lesson);
+    });
+
+    return Array.from(slots.values())
+        .sort((a, b) => a.pairOrder - b.pairOrder)
+        .map(slot => slot.parts.length === 1 ? slot.parts[0] : slot);
+}
+
+function getVisibleLessonCount(lessons) {
+    return getVisibleLessons(lessons).length;
 }
 
 function createDetail(label, value, extraClass = '') {

@@ -303,6 +303,27 @@ select:focus,
     line-height: 1.25;
 }
 
+.lesson-part + .lesson-part {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+}
+
+.lesson-part.split .lesson-subject {
+    color: var(--text);
+}
+
+.split-label {
+    display: inline-flex;
+    margin-bottom: 10px;
+    border-radius: 999px;
+    background: rgba(20, 134, 109, 0.1);
+    color: #0d5f4d;
+    padding: 4px 9px;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
 .lesson-details {
     display: flex;
     flex-wrap: wrap;
