@@ -1,5 +1,71 @@
 const XLS_FILE = 'schedule.xls';
 const DAYS_ORDER = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+const AUTHORITATIVE_TEACHERS = [
+    'Буровина Мария Васильевна',
+    'Буровина Наталья Евгеньевна',
+    'Быков Михаил Юрьевич',
+    'Вакансия',
+    'Васюкова К.',
+    'Воронков Владимир Витальевич',
+    'Галушкин Алексей Владимирович',
+    'Горина Елизавета Дмитриевна',
+    'Гришин Степан Валерьевич',
+    'Гуревич Алексей Владимирович',
+    'Дьяченко Игорь Васильевич',
+    'Жиркова Ольга Анатольевна',
+    'Журавлева Нина Сергеевна',
+    'Захаров Олег Валерьевич',
+    'Иванова Е.С.',
+    'Коваленок Л.Р.',
+    'Кузнецова Евгения Евгеньевна',
+    'Куликов Николай Александрович',
+    'Лапшин Алексей Викторович',
+    'Лядова Марина Николаевна',
+    'Макаров Александр Евгеньевич',
+    'Мальцева Светлана Анатольевна',
+    'Мастеров Сергей Юрьевич',
+    'Мещерякова Ольга Николаевна',
+    'Пахотина И.Н.',
+    'Смирнов А.Н.',
+    'Смирнова С.Б.',
+    'Халезова Татьяна Борисовна',
+    'Черкасова Л.В.',
+    'Шапкин Сергей Вячеславович',
+    'Ширстова А.Д.',
+    'Яковлев Пётр Алексеевич'
+];
+const AUTHORITATIVE_ROOMS = [
+    '101',
+    '102',
+    '2 слесарная мастерская',
+    '201',
+    '202',
+    '206',
+    '207',
+    '208',
+    '209',
+    '210',
+    '216',
+    '222',
+    '223',
+    '224',
+    '224-А',
+    '301',
+    '302',
+    '306',
+    '307',
+    '401',
+    '402',
+    '405',
+    '407',
+    'Автомастерская',
+    'Мастерская ДСМ',
+    'Сварочная мастерская',
+    'Слесарная мастерская',
+    'Токарная мастерская',
+    'Учебная мастерская станков с ЧПУ',
+    'маст'
+];
 
 const state = {
     currentView: 'group',
@@ -226,7 +292,7 @@ function parseScheduleRows(rows, startRow, groupColumns, lessons, teachers) {
                     pair,
                     pairOrder: getPairOrder(pair),
                     subject: lesson.subject || '-',
-                    room: lesson.room || '-',
+                    room: normalizeRoomName(lesson.room),
                     group: groupName,
                     teacher: lesson.teacher || 'Не указан'
                 };
@@ -346,8 +412,8 @@ function parseSubjectPart(text, roomOverride = '') {
         }
     }
 
-    const regexTwoInitials = /([А-ЯЁ][а-яё]+)\s+([А-ЯЁ]\.?\s*[А-ЯЁ]\.?)/;
-    const regexOneInitial = /([А-ЯЁ][а-яё]+)\s+([А-ЯЁ]\.?)/;
+    const regexTwoInitials = /([А-ЯЁ][а-яё]{3,})\s*([А-ЯЁ]\.?\s*[А-ЯЁ]\.?)/;
+    const regexOneInitial = /([А-ЯЁ][а-яё]{3,})\s+([А-ЯЁ]\.?)(?=\s|$)/;
     const teacherMatch = subject.match(regexTwoInitials) || subject.match(regexOneInitial);
 
     if (teacherMatch) {
@@ -364,7 +430,7 @@ function parseSubjectPart(text, roomOverride = '') {
             rawInitials = rawInitials.replace(/([А-ЯЁ]\.)([А-ЯЁ]\.)/, '$1 $2');
         }
 
-        teacher = `${surname} ${rawInitials}`;
+        teacher = canonicalTeacherName(`${surname} ${rawInitials}`);
     }
 
     subject = subject.replace(/,$/, '').trim();
@@ -374,6 +440,87 @@ function parseSubjectPart(text, roomOverride = '') {
         teacher: teacher || 'Не указан',
         room
     };
+}
+
+function canonicalTeacherName(name) {
+    const teacherName = normalizeTeacherSpacing(name);
+    const exact = teacherDirectory().exact.get(normalizeLookup(teacherName));
+    if (exact) {
+        return exact.shortName;
+    }
+
+    const surname = getSurname(teacherName);
+    const surnameMatches = teacherDirectory().bySurname.get(normalizeLookup(surname)) || [];
+    if (surnameMatches.length === 1) {
+        return surnameMatches[0].shortName;
+    }
+
+    return teacherName;
+}
+
+function normalizeTeacherSpacing(value) {
+    return normalizeText(value)
+        .replace(/([А-ЯЁ])\s*\./g, '$1.')
+        .replace(/([А-ЯЁ]\.)([А-ЯЁ]\.)/g, '$1 $2')
+        .trim();
+}
+
+let teacherDirectoryCache = null;
+
+function teacherDirectory() {
+    if (teacherDirectoryCache) {
+        return teacherDirectoryCache;
+    }
+
+    const exact = new Map();
+    const bySurname = new Map();
+
+    AUTHORITATIVE_TEACHERS.forEach(fullName => {
+        const shortName = shortTeacherName(fullName);
+        const entry = { fullName, shortName };
+        exact.set(normalizeLookup(fullName), entry);
+        exact.set(normalizeLookup(shortName), entry);
+
+        const surnameKey = normalizeLookup(getSurname(fullName));
+        if (!bySurname.has(surnameKey)) {
+            bySurname.set(surnameKey, []);
+        }
+        bySurname.get(surnameKey).push(entry);
+    });
+
+    teacherDirectoryCache = { exact, bySurname };
+    return teacherDirectoryCache;
+}
+
+function shortTeacherName(fullName) {
+    const parts = normalizeTeacherSpacing(fullName).split(' ').filter(Boolean);
+    if (parts.length >= 3) {
+        return `${parts[0]} ${parts[1].charAt(0)}. ${parts[2].charAt(0)}.`;
+    }
+
+    return normalizeTeacherSpacing(fullName);
+}
+
+function getSurname(fullName) {
+    return normalizeText(fullName).split(' ')[0] || '';
+}
+
+function normalizeRoomName(value) {
+    const room = normalizeText(value);
+    if (!room || room === '-') {
+        return '-';
+    }
+
+    const compact = room.toLowerCase().replace(/\s+/g, '');
+    if (compact === '222') {
+        return '222';
+    }
+    if (/^224[-(]?[аa][)]?$/.test(compact)) {
+        return '224-А';
+    }
+
+    const canonical = AUTHORITATIVE_ROOMS.find(item => normalizeLookup(item) === normalizeLookup(room));
+    return canonical || room;
 }
 
 function hasLessonSplitter(discipline, room) {
@@ -395,12 +542,19 @@ function normalizeText(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function normalizeLookup(value) {
+    return normalizeText(value)
+        .toLowerCase()
+        .replace(/ё/g, 'е')
+        .replace(/[()\s.-]+/g, '');
+}
+
 function isGymRoom(value) {
     return /^с\s*\/\s*зал$/i.test(normalizeText(value));
 }
 
 function isTeacherOnly(value) {
-    return /^[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.?\s*[А-ЯЁ]\.?$/i.test(normalizeText(value));
+    return /^[А-ЯЁ][а-яё]{3,}\s*[А-ЯЁ]\.?\s*[А-ЯЁ]\.?$/i.test(normalizeText(value));
 }
 
 function completeShortLanguageSubject(firstSubject, secondSubject) {
