@@ -164,20 +164,22 @@ function extractPeriod(rows) {
 function parseScheduleRows(rows, startRow, groupColumns, lessons, teachers) {
     const dayNames = DAYS_ORDER.map(day => day.toLowerCase());
     let currentDay = '';
-    let lastLessonRowWas8 = false;
+    let nextContinuationLesson = null;
+    let blankRowsAfterContinuation = 0;
 
     for (let i = startRow; i < rows.length; i += 1) {
         const row = rows[i];
         const firstCell = String(row[0] || '').toLowerCase().trim();
 
-        if (firstCell.includes('сокращения') || firstCell.includes('рем. раб')) {
+        if (isLegendRow(row)) {
             break;
         }
 
         const foundDay = dayNames.find(day => firstCell.includes(day));
         if (foundDay) {
             currentDay = foundDay.charAt(0).toUpperCase() + foundDay.slice(1);
-            lastLessonRowWas8 = false;
+            nextContinuationLesson = null;
+            blankRowsAfterContinuation = 0;
         }
 
         const lessonNumber = String(row[1] || '').trim();
@@ -186,10 +188,17 @@ function parseScheduleRows(rows, startRow, groupColumns, lessons, teachers) {
 
         if (currentDay && !Number.isNaN(numericLesson) && numericLesson >= 1) {
             pair = getLessonNumber(numericLesson);
-            lastLessonRowWas8 = numericLesson === 8;
-        } else if (currentDay && lastLessonRowWas8 && rowHasSubject(row, groupColumns)) {
-            pair = '9-10 урок';
-            lastLessonRowWas8 = false;
+            nextContinuationLesson = numericLesson === 8 ? 9 : null;
+            blankRowsAfterContinuation = 0;
+        } else if (currentDay && nextContinuationLesson && rowHasSubject(row, groupColumns) && blankRowsAfterContinuation <= 1) {
+            pair = getLessonNumber(nextContinuationLesson);
+            nextContinuationLesson += 2;
+            blankRowsAfterContinuation = 0;
+        } else if (nextContinuationLesson && isBlankScheduleRow(row, groupColumns)) {
+            blankRowsAfterContinuation += 1;
+        } else if (nextContinuationLesson) {
+            nextContinuationLesson = null;
+            blankRowsAfterContinuation = 0;
         }
 
         if (!pair) {
@@ -238,6 +247,28 @@ function rowHasSubject(row, groupColumns) {
     });
 }
 
+function isBlankScheduleRow(row, groupColumns) {
+    const hasLessonNumber = String(row[1] || '').trim();
+    if (hasLessonNumber) {
+        return false;
+    }
+
+    return Object.values(groupColumns).every(columnIndex => {
+        const disciplineRaw = String(row[columnIndex] || '').trim();
+        const roomRaw = String(row[columnIndex + 1] || '').trim();
+        return !disciplineRaw && !roomRaw;
+    });
+}
+
+function isLegendRow(row) {
+    const line = normalizeText(row.join(' ')).toLowerCase();
+    if (!line) {
+        return false;
+    }
+
+    return line.includes('сокращения') || line.includes('рем. раб -') || line.includes('тпв - техническое обслуживание');
+}
+
 function getLessonNumber(num) {
     const n = parseInt(num, 10);
     if (Number.isNaN(n)) return null;
@@ -245,7 +276,9 @@ function getLessonNumber(num) {
     if (n <= 4) return '3-4 урок';
     if (n <= 6) return '5-6 урок';
     if (n <= 8) return '7-8 урок';
-    return null;
+    if (n <= 10) return '9-10 урок';
+    if (n <= 12) return '11-12 урок';
+    return `${n}-${n + 1} урок`;
 }
 
 function getPairOrder(pair) {
